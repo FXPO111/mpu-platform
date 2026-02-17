@@ -58,7 +58,7 @@ def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
     if status != "active":
         raise APIError("USER_BLOCKED", "User is not active", {"status": status}, status_code=403)
 
-    token = create_access_token(str(user.id), getattr(user.role, "value", user.role))
+    token = create_access_token(str(user.id), user.role)
     return {"data": {"access_token": token, "token_type": "bearer"}}
 
 
@@ -76,7 +76,7 @@ def me(user=Depends(get_current_user)):
             "email": user.email,
             "name": user.name,
             "locale": user.locale,
-            "role": getattr(user.role, "value", user.role),
+            "role": user.role,
             "status": getattr(user.status, "value", user.status),
         }
     }
