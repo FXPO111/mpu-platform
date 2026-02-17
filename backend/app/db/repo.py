@@ -1,7 +1,10 @@
-from datetime import datetime
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.domain.models import (
@@ -18,10 +21,17 @@ from app.domain.models import (
 )
 
 
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class Repo:
     def __init__(self, db: Session):
         self.db = db
 
+    # -----------------------------
+    # Users
+    # -----------------------------
     def create_user(self, email: str, password_hash: str, name: str, locale: str = "de") -> User:
         user = User(email=email.lower(), password_hash=password_hash, name=name, locale=locale)
         self.db.add(user)
@@ -31,6 +41,9 @@ class Repo:
     def get_user_by_email(self, email: str) -> User | None:
         return self.db.scalar(select(User).where(User.email == email.lower()))
 
+    # -----------------------------
+    # AI Sessions / Messages / Eval
+    # -----------------------------
     def create_ai_session(self, user_id: UUID, mode: str, locale: str) -> AISession:
         session = AISession(user_id=user_id, mode=mode, locale=locale)
         self.db.add(session)
@@ -47,7 +60,13 @@ class Repo:
         return message
 
     def list_messages(self, session_id: UUID) -> list[AIMessage]:
-        return list(self.db.scalars(select(AIMessage).where(AIMessage.session_id == session_id).order_by(AIMessage.created_at)).all())
+        return list(
+            self.db.scalars(
+                select(AIMessage)
+                .where(AIMessage.session_id == session_id)
+                .order_by(AIMessage.created_at)
+            ).all()
+        )
 
     def add_evaluation(self, session_id: UUID, message_id: UUID, rubric_scores: dict, summary_feedback: str, detected_issues: dict):
         row = AIEvaluation(
@@ -60,18 +79,65 @@ class Repo:
         self.db.add(row)
         return row
 
-    def consume_credit(self, user_id: UUID) -> bool:
+    # -----------------------------
+    # Entitlements
+    # -----------------------------
+    def consume_entitlement(self, user_id: UUID, kind: str) -> bool:
+        """
+        Atomically consumes 1 unit from the earliest expiring entitlement of this kind.
+        Filters expired/not-yet-valid entitlements.
+        """
+        now = _now_utc()
+
         ent = self.db.scalar(
             select(Entitlement)
-            .where(Entitlement.user_id == user_id, Entitlement.kind == "ai_credits")
-            .order_by(Entitlement.valid_to.is_(None).desc(), Entitlement.created_at)
+            .where(
+                Entitlement.user_id == user_id,
+                Entitlement.kind == kind,
+                Entitlement.qty_used < Entitlement.qty_total,
+                Entitlement.valid_from <= now,
+                or_(Entitlement.valid_to.is_(None), Entitlement.valid_to >= now),
+            )
+            # Use expiring first; unlimited last.
+            .order_by(Entitlement.valid_to.is_(None), Entitlement.valid_to, Entitlement.created_at)
             .with_for_update()
         )
-        if not ent or ent.qty_used >= ent.qty_total:
+        if not ent:
             return False
+
         ent.qty_used += 1
         return True
 
+    def consume_credit(self, user_id: UUID) -> bool:
+        return self.consume_entitlement(user_id, "ai_credits")
+
+    def grant_entitlement_once(self, order: Order, kind: str, qty_total: int):
+        existing = self.db.scalar(
+            select(Entitlement).where(
+                Entitlement.source_order_id == order.id,
+                Entitlement.kind == kind,
+            )
+        )
+        if existing:
+            # Ensure order is paid as well (idempotency safety)
+            order.status = "paid"
+            return existing
+
+        ent = Entitlement(
+            user_id=order.user_id,
+            kind=kind,
+            qty_total=qty_total,
+            qty_used=0,
+            valid_from=_now_utc(),
+            source_order_id=order.id,
+        )
+        self.db.add(ent)
+        order.status = "paid"
+        return ent
+
+    # -----------------------------
+    # Slots / Bookings
+    # -----------------------------
     def list_open_slots(self) -> list[Slot]:
         return list(self.db.scalars(select(Slot).where(Slot.status == "open").order_by(Slot.starts_at_utc)).all())
 
@@ -79,12 +145,16 @@ class Repo:
         slot = self.db.get(Slot, slot_id, with_for_update=True)
         if not slot or slot.status != "open":
             raise ValueError("Slot not available")
+
         slot.status = "booked"
         booking = Booking(user_id=user_id, slot_id=slot_id, status="confirmed")
         self.db.add(booking)
         self.db.flush()
         return booking
 
+    # -----------------------------
+    # Products / Orders
+    # -----------------------------
     def create_order(self, user_id: UUID, product: Product, provider_ref: str) -> Order:
         order = Order(
             user_id=user_id,
@@ -104,26 +174,35 @@ class Repo:
     def list_products(self) -> list[Product]:
         return list(self.db.scalars(select(Product).where(Product.active.is_(True))).all())
 
-    def insert_payment_event(self, provider: str, event_id: str, event_type: str, payload: dict) -> tuple[PaymentEvent, bool]:
-        existing = self.db.scalar(select(PaymentEvent).where(PaymentEvent.event_id == event_id))
-        if existing:
-            return existing, False
-        evt = PaymentEvent(provider=provider, event_id=event_id, type=event_type, payload_json=payload)
-        self.db.add(evt)
-        self.db.flush()
-        return evt, True
-
-    def mark_payment_event_processed(self, evt: PaymentEvent):
-        evt.processed_at = datetime.utcnow()
-
     def find_order_by_provider_ref(self, provider_ref: str) -> Order | None:
         return self.db.scalar(select(Order).where(Order.provider_ref == provider_ref))
 
-    def grant_entitlement_once(self, order: Order, kind: str, qty_total: int):
-        existing = self.db.scalar(select(Entitlement).where(Entitlement.source_order_id == order.id, Entitlement.kind == kind))
+    # -----------------------------
+    # Payment Events (webhook idempotency)
+    # -----------------------------
+    def insert_payment_event(self, provider: str, event_id: str, event_type: str, payload: dict) -> tuple[PaymentEvent, bool]:
+        """
+        Race-safe insert:
+        - If exists -> (existing, False)
+        - Else try insert; on unique violation -> load existing and return (existing, False)
+        """
+        existing = self.db.scalar(select(PaymentEvent).where(PaymentEvent.event_id == event_id))
         if existing:
-            return existing
-        ent = Entitlement(user_id=order.user_id, kind=kind, qty_total=qty_total, source_order_id=order.id)
-        self.db.add(ent)
-        order.status = "paid"
-        return ent
+            return existing, False
+
+        evt = PaymentEvent(provider=provider, event_id=event_id, type=event_type, payload_json=payload)
+        self.db.add(evt)
+
+        try:
+            self.db.flush()
+            return evt, True
+        except IntegrityError:
+            # Another worker inserted the same event_id first
+            self.db.rollback()
+            existing2 = self.db.scalar(select(PaymentEvent).where(PaymentEvent.event_id == event_id))
+            if existing2:
+                return existing2, False
+            raise
+
+    def mark_payment_event_processed(self, evt: PaymentEvent):
+        evt.processed_at = _now_utc()
