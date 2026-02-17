@@ -47,5 +47,4 @@ def process_user_message(db: Session, session_id, user_content: str, locale: str
         summary_feedback=scoring.get("summary_feedback", ""),
         detected_issues=scoring.get("detected_issues", {}),
     )
-
     return assistant_msg

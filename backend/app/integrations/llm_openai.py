@@ -4,18 +4,17 @@ import os
 
 from app.settings import settings
 
-
 DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 
 
 def _fallback(mode: str, question: str, locale: str) -> str:
-    if locale == "de":
+    if (locale or "de").strip().lower().startswith("de"):
         return (
-            f"Feedback: Bitte antworten Sie konkreter (Fakten, Zeitpunkte, Ihr Anteil).\n\n"
+            "Feedback: Bitte antworten Sie konkreter (Fakten, Zeitpunkte, Ihr Anteil).\n\n"
             f"Nächste Frage: {question}"
         )
     return (
-        f"Feedback: Please be more concrete (facts, dates, your responsibility).\n\n"
+        "Feedback: Please be more concrete (facts, dates, your responsibility).\n\n"
         f"Next question: {question}"
     )
 
@@ -27,11 +26,13 @@ def generate_assistant_reply(mode: str, question: str, user_answer: str, locale:
       - short feedback on user's last answer (clarity/responsibility/specificity/consistency)
       - then asks the provided `question` as the next question
     """
-    if not settings.openai_api_key:
+    if not getattr(settings, "openai_api_key", None):
         return _fallback(mode=mode, question=question, locale=locale)
 
-    # system prompt (strict interviewer)
-    if locale == "de":
+    loc = (locale or "de").strip().lower()
+    is_de = loc.startswith("de")
+
+    if is_de:
         system = (
             "Du bist ein strenger MPU-Interviewtrainer. "
             "Deine Aufgabe: kurze, konkrete Rückmeldung geben und dann die nächste Frage stellen. "
@@ -60,28 +61,30 @@ def generate_assistant_reply(mode: str, question: str, user_answer: str, locale:
             f"Ask exactly this as the next question:\n{question}\n"
         )
 
+    model = getattr(settings, "openai_model", None) or DEFAULT_MODEL
+
+    # 1) Try Responses API (new)
     try:
-        from openai import OpenAI
+        from openai import OpenAI  # type: ignore
 
         client = OpenAI(api_key=settings.openai_api_key)
 
-        # Prefer Responses API
         resp = client.responses.create(
-            model=getattr(settings, "openai_model", None) or DEFAULT_MODEL,
+            model=model,
             instructions=system,
             input=user,
         )
 
         text = getattr(resp, "output_text", None)
-        if text and text.strip():
-            return text.strip()
+        if text and str(text).strip():
+            return str(text).strip()
 
         # fallback: try to extract from structured output
         try:
-            out = []
-            for item in resp.output:
-                if item.type == "message":
-                    for c in item.content:
+            out: list[str] = []
+            for item in getattr(resp, "output", []) or []:
+                if getattr(item, "type", None) == "message":
+                    for c in getattr(item, "content", []) or []:
                         if getattr(c, "type", None) in ("output_text", "text"):
                             out.append(getattr(c, "text", "") or "")
             joined = "\n".join([t for t in out if t]).strip()
@@ -93,22 +96,24 @@ def generate_assistant_reply(mode: str, question: str, user_answer: str, locale:
         return _fallback(mode=mode, question=question, locale=locale)
 
     except Exception:
-        # Final fallback: old chat.completions if responses fails in some env
-        try:
-            from openai import OpenAI
+        pass
 
-            client = OpenAI(api_key=settings.openai_api_key)
-            resp = client.chat.completions.create(
-                model=getattr(settings, "openai_model", None) or DEFAULT_MODEL,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            )
-            content = resp.choices[0].message.content
-            if content and content.strip():
-                return content.strip()
-        except Exception:
-            pass
+    # 2) Fallback to Chat Completions (older envs)
+    try:
+        from openai import OpenAI  # type: ignore
 
-        return _fallback(mode=mode, question=question, locale=locale)
+        client = OpenAI(api_key=settings.openai_api_key)
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        content = resp.choices[0].message.content
+        if content and content.strip():
+            return content.strip()
+    except Exception:
+        pass
+
+    return _fallback(mode=mode, question=question, locale=locale)

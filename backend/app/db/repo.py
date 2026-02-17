@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -45,10 +45,10 @@ class Repo:
     # AI Sessions / Messages / Eval
     # -----------------------------
     def create_ai_session(self, user_id: UUID, mode: str, locale: str) -> AISession:
-        session = AISession(user_id=user_id, mode=mode, locale=locale)
-        self.db.add(session)
+        sess = AISession(user_id=user_id, mode=mode, locale=locale)
+        self.db.add(sess)
         self.db.flush()
-        return session
+        return sess
 
     def get_ai_session(self, session_id: UUID) -> AISession | None:
         return self.db.get(AISession, session_id)
@@ -68,7 +68,14 @@ class Repo:
             ).all()
         )
 
-    def add_evaluation(self, session_id: UUID, message_id: UUID, rubric_scores: dict, summary_feedback: str, detected_issues: dict):
+    def add_evaluation(
+        self,
+        session_id: UUID,
+        message_id: UUID,
+        rubric_scores: dict,
+        summary_feedback: str,
+        detected_issues: dict,
+    ) -> AIEvaluation:
         row = AIEvaluation(
             session_id=session_id,
             message_id=message_id,
@@ -85,7 +92,7 @@ class Repo:
     def consume_entitlement(self, user_id: UUID, kind: str) -> bool:
         """
         Atomically consumes 1 unit from the earliest expiring entitlement of this kind.
-        Filters expired/not-yet-valid entitlements.
+        Filters expired and not-yet-valid entitlements.
         """
         now = _now_utc()
 
@@ -98,7 +105,7 @@ class Repo:
                 Entitlement.valid_from <= now,
                 or_(Entitlement.valid_to.is_(None), Entitlement.valid_to >= now),
             )
-            # Use expiring first; unlimited last.
+            # expiring first; unlimited last
             .order_by(Entitlement.valid_to.is_(None), Entitlement.valid_to, Entitlement.created_at)
             .with_for_update()
         )
@@ -111,7 +118,7 @@ class Repo:
     def consume_credit(self, user_id: UUID) -> bool:
         return self.consume_entitlement(user_id, "ai_credits")
 
-    def grant_entitlement_once(self, order: Order, kind: str, qty_total: int):
+    def grant_entitlement_once(self, order: Order, kind: str, qty_total: int) -> Entitlement:
         existing = self.db.scalar(
             select(Entitlement).where(
                 Entitlement.source_order_id == order.id,
@@ -119,7 +126,6 @@ class Repo:
             )
         )
         if existing:
-            # Ensure order is paid as well (idempotency safety)
             order.status = "paid"
             return existing
 
@@ -139,7 +145,13 @@ class Repo:
     # Slots / Bookings
     # -----------------------------
     def list_open_slots(self) -> list[Slot]:
-        return list(self.db.scalars(select(Slot).where(Slot.status == "open").order_by(Slot.starts_at_utc)).all())
+        return list(
+            self.db.scalars(
+                select(Slot)
+                .where(Slot.status == "open")
+                .order_by(Slot.starts_at_utc)
+            ).all()
+        )
 
     def book_slot(self, user_id: UUID, slot_id: UUID) -> Booking:
         slot = self.db.get(Slot, slot_id, with_for_update=True)
@@ -180,11 +192,17 @@ class Repo:
     # -----------------------------
     # Payment Events (webhook idempotency)
     # -----------------------------
-    def insert_payment_event(self, provider: str, event_id: str, event_type: str, payload: dict) -> tuple[PaymentEvent, bool]:
+    def insert_payment_event(
+        self,
+        provider: str,
+        event_id: str,
+        event_type: str,
+        payload: dict,
+    ) -> tuple[PaymentEvent, bool]:
         """
         Race-safe insert:
-        - If exists -> (existing, False)
-        - Else try insert; on unique violation -> load existing and return (existing, False)
+          - If exists -> (existing, False)
+          - Else try insert; on unique violation -> load existing and return (existing, False)
         """
         existing = self.db.scalar(select(PaymentEvent).where(PaymentEvent.event_id == event_id))
         if existing:
@@ -204,5 +222,5 @@ class Repo:
                 return existing2, False
             raise
 
-    def mark_payment_event_processed(self, evt: PaymentEvent):
+    def mark_payment_event_processed(self, evt: PaymentEvent) -> None:
         evt.processed_at = _now_utc()

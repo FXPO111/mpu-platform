@@ -40,18 +40,11 @@ def create_session(payload: SessionCreateIn, user=Depends(get_current_user), db:
 
         sess = repo.create_ai_session(user.id, mode, locale)
         db.commit()
-        return {
-            "data": {
-                "id": str(sess.id),
-                "mode": sess.mode,
-                "locale": sess.locale,
-                "status": sess.status,
-            }
-        }
+        return {"data": {"id": str(sess.id), "mode": sess.mode, "locale": sess.locale, "status": sess.status}}
     except APIError:
         db.rollback()
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         db.rollback()
         raise exc
 
@@ -104,19 +97,12 @@ def send_message(session_id: UUID, payload: MessageIn, user=Depends(get_current_
         assistant = process_user_message(db, session_id, payload.content, sess.locale, sess.mode)
         db.commit()
 
-        return {
-            "data": {
-                "assistant_message": {
-                    "id": str(assistant.id),
-                    "content": assistant.content,
-                }
-            }
-        }
+        return {"data": {"assistant_message": {"id": str(assistant.id), "content": assistant.content}}}
 
     except APIError:
         db.rollback()
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         db.rollback()
         raise exc
 
@@ -137,6 +123,6 @@ def close_session(session_id: UUID, user=Depends(get_current_user), db: Session 
             sess.closed_at = _now_utc()
         db.commit()
         return {"data": {"id": str(sess.id), "status": "closed"}}
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         db.rollback()
         raise exc

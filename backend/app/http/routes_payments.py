@@ -84,10 +84,14 @@ async def webhook(
     repo = Repo(db)
 
     # Store event for audit + idempotency.
-    # NOTE: Repo.insert_payment_event() should be fixed to be race-safe,
-    # but we also handle IntegrityError here as a second line of defense.
+    # Repo.insert_payment_event() is race-safe; we still keep a defensive catch.
     try:
-        evt, is_new = repo.insert_payment_event("stripe", event["id"], event.get("type", "unknown"), event)
+        evt, is_new = repo.insert_payment_event(
+            "stripe",
+            event["id"],
+            event.get("type", "unknown"),
+            event,
+        )
     except IntegrityError:
         db.rollback()
         existing = db.scalar(select(PaymentEvent).where(PaymentEvent.event_id == event["id"]))
@@ -114,14 +118,13 @@ async def webhook(
                         apply_paid_event(db, order.provider_ref)
                         processed = True
 
-            # Other events are stored for audit/debug but not processed unless linked.
-
         repo.mark_payment_event_processed(evt)
         db.commit()
+
     except APIError:
         db.rollback()
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         db.rollback()
         raise exc
 

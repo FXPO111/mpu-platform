@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.domain.models import Question
 
-
 # Level bands per mode (MVP heuristic)
 _MODE_LEVELS = {
     "diagnostic": (1, 2),  # проще, чтобы собрать базовый кейс
@@ -112,3 +111,4 @@ def next_question(
 
     text = q.question_de if loc == "de" else q.question_en
     return text or _fallback_question(loc, (mode or "").strip().lower() or None)
+
