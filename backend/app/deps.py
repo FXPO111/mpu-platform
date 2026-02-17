@@ -61,10 +61,8 @@ def get_current_user(
 
 
 def require_roles(*roles: str):
-    roles_set = {r.strip() for r in roles if r and r.strip()}
-
     def checker(user: User = Depends(get_current_user)) -> User:
-        if _role_value(user) not in roles_set:
+        if user.role not in roles:
             raise APIError("FORBIDDEN", "Insufficient role", status_code=403)
         return user
 
