@@ -93,7 +93,9 @@ def reserve(slot_id: UUID, user=Depends(get_current_user), db: Session = Depends
     if has_access:
         return {"data": {"slot_id": str(slot_id), "status": "ready_to_book"}}
 
-    booking_product = db.scalar(select(Product).where(and_(Product.type == "booking", Product.active.is_(True))).limit(1))
+    booking_product = db.scalar(
+        select(Product).where(and_(Product.type == "booking", Product.active.is_(True))).limit(1)
+    )
     return {
         "data": {
             "slot_id": str(slot_id),

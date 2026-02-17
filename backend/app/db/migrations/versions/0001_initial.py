@@ -19,7 +19,7 @@ def upgrade() -> None:
     # pgvector
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-    # enums for users.role / users.status (match SQLAlchemy SAEnum in models.py)
+    # enums for users.role / users.status (must match SQLAlchemy SAEnum names: role / userstatus)
     op.execute(
         """
         DO $$
@@ -41,6 +41,10 @@ def upgrade() -> None:
         """
     )
 
+    # IMPORTANT: prevent SQLAlchemy from auto-creating enum types again
+    role_enum = postgresql.ENUM("user", "admin", "consultant", name="role", create_type=False)
+    status_enum = postgresql.ENUM("active", "blocked", "deleted", name="userstatus", create_type=False)
+
     # users
     op.create_table(
         "users",
@@ -50,8 +54,8 @@ def upgrade() -> None:
         sa.Column("name", sa.String(120), nullable=False),
         sa.Column("locale", sa.String(5), nullable=False),
         sa.Column("timezone", sa.String(64), nullable=True),
-        sa.Column("role", sa.Enum("user", "admin", "consultant", name="role"), nullable=False),
-        sa.Column("status", sa.Enum("active", "blocked", "deleted", name="userstatus"), nullable=False),
+        sa.Column("role", role_enum, nullable=False),
+        sa.Column("status", status_enum, nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
