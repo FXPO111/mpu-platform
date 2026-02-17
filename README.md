@@ -46,6 +46,21 @@ python -m alembic upgrade head
    - Fix `DATABASE_URL` to your real user/password/database, or
    - Recreate postgres with default creds (`postgres/postgres`, db `mpu`) and rerun migrations.
 
+
+4. If backend logs show `DuplicateObject: type "role" already exists`, the DB volume has partial migration artifacts.
+   Run a hard reset from `infra/`:
+
+```powershell
+docker compose down -v --remove-orphans
+docker volume ls
+docker volume rm infra_pgdata
+docker compose up --build -d
+```
+
+5. If Compose still prints `the attribute version is obsolete`, your local branch is stale.
+   Run `git pull` and verify `infra/docker-compose.yml` no longer has a top-level `version:` field.
+
+
 ## Seed
 Use Python shell and call seed helpers from `app.db.seeds.seed_data`.
 

@@ -143,9 +143,7 @@ class Repo:
     # Slots / Bookings
     # -----------------------------
     def list_open_slots(self) -> list[Slot]:
-        return list(
-            self.db.scalars(select(Slot).where(Slot.status == "open").order_by(Slot.starts_at_utc)).all()
-        )
+        return list(self.db.scalars(select(Slot).where(Slot.status == "open").order_by(Slot.starts_at_utc)).all())
 
     def book_slot(self, user_id: UUID, slot_id: UUID) -> Booking:
         slot = self.db.get(Slot, slot_id, with_for_update=True)

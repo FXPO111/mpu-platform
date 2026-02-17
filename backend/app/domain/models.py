@@ -61,9 +61,7 @@ class User(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
     orders: Mapped[list["Order"]] = relationship(back_populates="user", lazy="selectin")
     entitlements: Mapped[list["Entitlement"]] = relationship(back_populates="user", lazy="selectin")
@@ -206,9 +204,7 @@ class Booking(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="confirmed")
     client_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class Product(Base):
@@ -241,9 +237,7 @@ class Order(Base):
     provider: Mapped[str] = mapped_column(String(32), nullable=False, default="stripe")
     provider_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
     user: Mapped["User"] = relationship(back_populates="orders", lazy="joined")
     product: Mapped["Product"] = relationship(back_populates="orders", lazy="joined")
