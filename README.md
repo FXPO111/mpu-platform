@@ -21,6 +21,7 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
+## Windows / PowerShell quick start
 1. Create `backend/.env` from `.env.example` and set real values:
 
 ```env

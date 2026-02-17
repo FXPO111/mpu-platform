@@ -43,7 +43,12 @@ def _entitlement_for_product(product) -> Tuple[str, int, int | None]:
     if ptype == "ai_pack":
         credits = _int_meta(meta, "credits", 50)
         if credits <= 0:
-            raise APIError("BAD_PRODUCT_METADATA", "AI credits must be > 0", {"credits": credits}, status_code=422)
+            raise APIError(
+                "BAD_PRODUCT_METADATA",
+                "AI credits must be > 0",
+                {"credits": credits},
+                status_code=422,
+            )
         valid_days = meta.get("valid_days")
         if valid_days is not None:
             valid_days = _int_meta(meta, "valid_days", 0)
@@ -54,7 +59,12 @@ def _entitlement_for_product(product) -> Tuple[str, int, int | None]:
     if ptype == "booking":
         qty = _int_meta(meta, "qty", 1)
         if qty <= 0:
-            raise APIError("BAD_PRODUCT_METADATA", "Booking qty must be > 0", {"qty": qty}, status_code=422)
+            raise APIError(
+                "BAD_PRODUCT_METADATA",
+                "Booking qty must be > 0",
+                {"qty": qty},
+                status_code=422,
+            )
         valid_days = meta.get("valid_days")
         if valid_days is not None:
             valid_days = _int_meta(meta, "valid_days", 0)
