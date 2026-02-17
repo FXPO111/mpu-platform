@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -89,10 +88,11 @@ def next_question(
       - level_min/level_max: override difficulty band
     """
     loc = _normalize_locale(locale)
+    mode_norm = (mode or "").strip().lower() or None
 
     q = _pick_question(
         db,
-        mode=(mode or "").strip().lower() or None,
+        mode=mode_norm,
         topic_id=topic_id,
         level_min=level_min,
         level_max=level_max,
@@ -100,15 +100,13 @@ def next_question(
 
     # Widen constraints progressively if nothing found
     if not q and topic_id is not None:
-        q = _pick_question(db, mode=mode, topic_id=None, level_min=level_min, level_max=level_max)
+        q = _pick_question(db, mode=mode_norm, topic_id=None, level_min=level_min, level_max=level_max)
 
     if not q and (level_min is not None or level_max is not None):
-        q = _pick_question(db, mode=mode, topic_id=topic_id, level_min=None, level_max=None)
+        q = _pick_question(db, mode=mode_norm, topic_id=topic_id, level_min=None, level_max=None)
 
     if not q:
-        # absolute fallback
-        return _fallback_question(loc, (mode or "").strip().lower() or None)
+        return _fallback_question(loc, mode_norm)
 
     text = q.question_de if loc == "de" else q.question_en
-    return text or _fallback_question(loc, (mode or "").strip().lower() or None)
-
+    return text or _fallback_question(loc, mode_norm)

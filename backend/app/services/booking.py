@@ -41,4 +41,3 @@ def create_booking(db: Session, user_id: UUID, slot_id: UUID, note: str | None =
         # ValueError: slot missing or not open
         # IntegrityError: uq_booking_slot_id collision in race
         raise APIError("SLOT_UNAVAILABLE", "Slot already booked or not available", status_code=409) from exc
-

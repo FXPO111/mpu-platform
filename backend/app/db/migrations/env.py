@@ -3,7 +3,10 @@ from sqlalchemy import engine_from_config, pool
 
 from app.domain.models import Base
 
+from app.settings import settings
+
 config = context.config
+config.set_main_option("sqlalchemy.url", settings.database_url)
 
 target_metadata = Base.metadata
 

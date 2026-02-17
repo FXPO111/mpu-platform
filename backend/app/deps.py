@@ -50,7 +50,12 @@ def get_current_user(
         raise APIError("UNAUTHORIZED", "User not found", status_code=401)
 
     if _status_value(user) != "active":
-        raise APIError("USER_BLOCKED", "User is not active", {"status": _status_value(user)}, status_code=403)
+        raise APIError(
+            "USER_BLOCKED",
+            "User is not active",
+            {"status": _status_value(user)},
+            status_code=403,
+        )
 
     return user
 

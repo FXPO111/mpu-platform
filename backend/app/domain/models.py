@@ -45,6 +45,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -53,7 +54,9 @@ class User(Base):
 
     # IMPORTANT: enum type names must match migration: role / userstatus
     role: Mapped[Role] = mapped_column(SAEnum(Role, name="role"), nullable=False, default=Role.user)
-    status: Mapped[UserStatus] = mapped_column(SAEnum(UserStatus, name="userstatus"), nullable=False, default=UserStatus.active)
+    status: Mapped[UserStatus] = mapped_column(
+        SAEnum(UserStatus, name="userstatus"), nullable=False, default=UserStatus.active
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)

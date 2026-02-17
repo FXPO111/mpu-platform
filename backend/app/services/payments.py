@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Tuple
 
 from sqlalchemy.orm import Session
@@ -17,22 +17,27 @@ def _int_meta(meta: dict[str, Any], key: str, default: int) -> int:
     v = meta.get(key, default)
     try:
         v = int(v)
-    except Exception:
-        raise APIError("BAD_PRODUCT_METADATA", f"Product metadata '{key}' must be an integer", {"key": key}, status_code=422)
+    except Exception as exc:
+        raise APIError(
+            "BAD_PRODUCT_METADATA",
+            f"Product metadata '{key}' must be an integer",
+            {"key": key},
+            status_code=422,
+        ) from exc
     return v
 
 
 def _entitlement_for_product(product) -> Tuple[str, int, int | None]:
     """
     Returns (entitlement_kind, qty_total, valid_days).
+
     Contract:
-      - ai_pack: metadata.credits (int) required/optional (default 50)
+      - ai_pack: metadata.credits optional (default 50)
                 metadata.valid_days optional
       - booking: metadata.qty optional (default 1)
                 metadata.valid_days optional
     """
     meta = getattr(product, "metadata_json", None) or {}
-
     ptype = product.type
 
     if ptype == "ai_pack":
