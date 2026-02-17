@@ -22,7 +22,7 @@ def create_product(payload: dict, db: Session = Depends(get_db), _admin=Depends(
 @router.get("/users")
 def users(db: Session = Depends(get_db), _admin=Depends(require_roles("admin", "consultant"))):
     rows = db.scalars(select(User)).all()
-    return {"data": [{"id": str(u.id), "email": u.email, "role": u.role.value, "status": u.status.value} for u in rows]}
+    return {"data": [{"id": str(u.id), "email": u.email, "role": u.role, "status": u.status} for u in rows]}
 
 
 @router.post("/slots")
