@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 from uuid import UUID, uuid4
@@ -10,7 +10,6 @@ from sqlalchemy import (
     JSON,
     DateTime,
     Enum as SAEnum,
-    Float,
     ForeignKey,
     Index,
     Integer,
@@ -20,6 +19,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Base(DeclarativeBase):
@@ -42,25 +45,31 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
-    name: Mapped[str] = mapped_column(String(120))
-    locale: Mapped[str] = mapped_column(String(5), default="de")
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    locale: Mapped[str] = mapped_column(String(5), nullable=False, default="de")
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    role: Mapped[Role] = mapped_column(SAEnum(Role), default=Role.user)
-    status: Mapped[UserStatus] = mapped_column(SAEnum(UserStatus), default=UserStatus.active)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # IMPORTANT: enum type names must match migration: role / userstatus
+    role: Mapped[Role] = mapped_column(SAEnum(Role, name="role"), nullable=False, default=Role.user)
+    status: Mapped[UserStatus] = mapped_column(SAEnum(UserStatus, name="userstatus"), nullable=False, default=UserStatus.active)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+    orders: Mapped[list["Order"]] = relationship(back_populates="user", lazy="selectin")
+    entitlements: Mapped[list["Entitlement"]] = relationship(back_populates="user", lazy="selectin")
 
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    token_hash: Mapped[str] = mapped_column(String(255), index=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -70,71 +79,71 @@ class AuditLog(Base):
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    action: Mapped[str] = mapped_column(String(64))
-    entity_type: Mapped[str] = mapped_column(String(64), index=True)
-    entity_id: Mapped[str] = mapped_column(String(64), index=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class Topic(Base):
     __tablename__ = "topics"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    slug: Mapped[str] = mapped_column(String(60), unique=True)
-    title_de: Mapped[str] = mapped_column(String(255))
-    title_en: Mapped[str] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    slug: Mapped[str] = mapped_column(String(60), unique=True, nullable=False)
+    title_de: Mapped[str] = mapped_column(String(255), nullable=False)
+    title_en: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id"), index=True)
-    level: Mapped[int] = mapped_column(Integer)
-    question_de: Mapped[str] = mapped_column(Text)
-    question_en: Mapped[str] = mapped_column(Text)
-    intent: Mapped[str] = mapped_column(Text)
-    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id"), index=True, nullable=False)
+    level: Mapped[int] = mapped_column(Integer, nullable=False)
+    question_de: Mapped[str] = mapped_column(Text, nullable=False)
+    question_en: Mapped[str] = mapped_column(Text, nullable=False)
+    intent: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class Rubric(Base):
     __tablename__ = "rubrics"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    code: Mapped[str] = mapped_column(String(64), unique=True)
-    title_de: Mapped[str] = mapped_column(String(255))
-    title_en: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str] = mapped_column(Text)
-    scale_min: Mapped[int] = mapped_column(Integer, default=0)
-    scale_max: Mapped[int] = mapped_column(Integer, default=5)
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    title_de: Mapped[str] = mapped_column(String(255), nullable=False)
+    title_en: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    scale_min: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scale_max: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
 
 
 class Material(Base):
     __tablename__ = "materials"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id"), index=True)
-    title_de: Mapped[str] = mapped_column(String(255))
-    title_en: Mapped[str] = mapped_column(String(255))
-    body: Mapped[str] = mapped_column(Text)
+    topic_id: Mapped[UUID] = mapped_column(ForeignKey("topics.id"), index=True, nullable=False)
+    title_de: Mapped[str] = mapped_column(String(255), nullable=False)
+    title_en: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class AISession(Base):
     __tablename__ = "ai_sessions"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    mode: Mapped[str] = mapped_column(String(32))
-    locale: Mapped[str] = mapped_column(String(5), default="de")
-    status: Mapped[str] = mapped_column(String(32), default="active")
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    locale: Mapped[str] = mapped_column(String(5), nullable=False, default="de")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -143,10 +152,10 @@ class AIMessage(Base):
     __table_args__ = (Index("ix_ai_messages_session_created", "session_id", "created_at"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    session_id: Mapped[UUID] = mapped_column(ForeignKey("ai_sessions.id"))
-    role: Mapped[str] = mapped_column(String(32))
-    content: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    session_id: Mapped[UUID] = mapped_column(ForeignKey("ai_sessions.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class AIEvaluation(Base):
@@ -154,12 +163,12 @@ class AIEvaluation(Base):
     __table_args__ = (Index("ix_ai_evals_session_created", "session_id", "created_at"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    session_id: Mapped[UUID] = mapped_column(ForeignKey("ai_sessions.id"))
-    message_id: Mapped[UUID] = mapped_column(ForeignKey("ai_messages.id"))
-    rubric_scores: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    summary_feedback: Mapped[str] = mapped_column(Text)
-    detected_issues: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    session_id: Mapped[UUID] = mapped_column(ForeignKey("ai_sessions.id"), nullable=False)
+    message_id: Mapped[UUID] = mapped_column(ForeignKey("ai_messages.id"), nullable=False)
+    rubric_scores: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    summary_feedback: Mapped[str] = mapped_column(Text, nullable=False)
+    detected_issues: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class Slot(Base):
@@ -167,14 +176,14 @@ class Slot(Base):
     __table_args__ = (Index("ix_slots_consultant_starts", "consultant_id", "starts_at_utc"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    consultant_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
-    starts_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    duration_min: Mapped[int] = mapped_column(Integer)
-    title: Mapped[str] = mapped_column(String(255))
-    meeting_provider: Mapped[str] = mapped_column(String(32), default="manual")
+    consultant_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    starts_at_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    duration_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    meeting_provider: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
     meeting_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    status: Mapped[str] = mapped_column(String(32), default="open")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class Booking(Base):
@@ -185,27 +194,29 @@ class Booking(Base):
     )
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
-    slot_id: Mapped[UUID] = mapped_column(ForeignKey("slots.id"))
-    status: Mapped[str] = mapped_column(String(32), default="confirmed")
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    slot_id: Mapped[UUID] = mapped_column(ForeignKey("slots.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="confirmed")
     client_note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class Product(Base):
     __tablename__ = "products"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    code: Mapped[str] = mapped_column(String(64), unique=True)
-    type: Mapped[str] = mapped_column(String(32))
-    name_de: Mapped[str] = mapped_column(String(255))
-    name_en: Mapped[str] = mapped_column(String(255))
-    price_cents: Mapped[int] = mapped_column(Integer)
-    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    type: Mapped[str] = mapped_column(String(32), nullable=False)  # ai_pack | booking | ...
+    name_de: Mapped[str] = mapped_column(String(255), nullable=False)
+    name_en: Mapped[str] = mapped_column(String(255), nullable=False)
+    price_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="EUR")
     stripe_price_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
-    active: Mapped[bool] = mapped_column(default=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, nullable=False, default=dict)
+    active: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    orders: Mapped[list["Order"]] = relationship(back_populates="product", lazy="selectin")
 
 
 class Order(Base):
@@ -213,15 +224,18 @@ class Order(Base):
     __table_args__ = (UniqueConstraint("provider", "provider_ref", name="uq_order_provider_ref"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
-    product_id: Mapped[UUID] = mapped_column(ForeignKey("products.id"))
-    amount_cents: Mapped[int] = mapped_column(Integer)
-    currency: Mapped[str] = mapped_column(String(3))
-    status: Mapped[str] = mapped_column(String(32), default="created")
-    provider: Mapped[str] = mapped_column(String(32), default="stripe")
-    provider_ref: Mapped[str] = mapped_column(String(128))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    product_id: Mapped[UUID] = mapped_column(ForeignKey("products.id"), nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="created")
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="stripe")
+    provider_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="orders", lazy="joined")
+    product: Mapped["Product"] = relationship(back_populates="orders", lazy="joined")
 
 
 class PaymentEvent(Base):
@@ -229,11 +243,11 @@ class PaymentEvent(Base):
     __table_args__ = (Index("ix_payment_events_processed", "processed_at"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    provider: Mapped[str] = mapped_column(String(32), default="stripe")
-    event_id: Mapped[str] = mapped_column(String(128), unique=True)
-    type: Mapped[str] = mapped_column(String(128))
-    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="stripe")
+    event_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    type: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -242,16 +256,22 @@ class Entitlement(Base):
     __table_args__ = (Index("ix_entitlements_user_kind_valid", "user_id", "kind", "valid_to"),)
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(32))
-    qty_total: Mapped[int] = mapped_column(Integer)
-    qty_used: Mapped[int] = mapped_column(Integer, default=0)
-    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    qty_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    qty_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    source_order_id: Mapped[UUID] = mapped_column(ForeignKey("orders.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    source_order_id: Mapped[UUID] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+    user: Mapped["User"] = relationship(back_populates="entitlements", lazy="joined")
+    order: Mapped["Order"] = relationship(lazy="joined")
 
 
+# -----------------------------
+# API error + DTO (Pydantic)
+# -----------------------------
 class APIError(Exception):
     def __init__(self, code: str, message: str, details: dict[str, Any] | None = None, status_code: int = 400):
         self.code = code
