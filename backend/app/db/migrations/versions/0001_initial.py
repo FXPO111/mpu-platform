@@ -16,25 +16,36 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # pgvector
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    op.execute("""
-    DO $$
-    BEGIN
-        IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role')
-           AND NOT EXISTS (
-               SELECT 1
-               FROM pg_attribute a
-               JOIN pg_type t ON t.oid = a.atttypid
-               WHERE t.typname = 'role'
-                 AND a.attnum > 0
-                 AND NOT a.attisdropped
-           ) THEN
-            DROP TYPE role;
-        END IF;
-    END
-    $$;
-    """)
 
+    # enums for users.role / users.status (must match SQLAlchemy SAEnum names: role / userstatus)
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role') THEN
+                CREATE TYPE role AS ENUM ('user','admin','consultant');
+            END IF;
+        END$$;
+        """
+    )
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userstatus') THEN
+                CREATE TYPE userstatus AS ENUM ('active','blocked','deleted');
+            END IF;
+        END$$;
+        """
+    )
+
+    # IMPORTANT: prevent SQLAlchemy from auto-creating enum types again
+    role_enum = postgresql.ENUM("user", "admin", "consultant", name="role", create_type=False)
+    status_enum = postgresql.ENUM("active", "blocked", "deleted", name="userstatus", create_type=False)
+
+    # users
     op.create_table(
         "users",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -42,13 +53,14 @@ def upgrade() -> None:
         sa.Column("password_hash", sa.String(255), nullable=False),
         sa.Column("name", sa.String(120), nullable=False),
         sa.Column("locale", sa.String(5), nullable=False),
-        sa.Column("timezone", sa.String(64)),
-        sa.Column("role", sa.String(32), nullable=False),
-        sa.Column("status", sa.String(32), nullable=False),
+        sa.Column("timezone", sa.String(64), nullable=True),
+        sa.Column("role", role_enum, nullable=False),
+        sa.Column("status", status_enum, nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
 
+    # refresh tokens
     op.create_table(
         "refresh_tokens",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -59,6 +71,7 @@ def upgrade() -> None:
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
     )
 
+    # audit
     op.create_table(
         "audit_log",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -72,6 +85,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
 
+    # content
     op.create_table(
         "topics",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -115,6 +129,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
 
+    # AI
     op.create_table(
         "ai_sessions",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -146,6 +161,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
 
+    # booking
     op.create_table(
         "slots",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -171,6 +187,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("slot_id", name="uq_booking_slot_id"),
     )
 
+    # products/payments
     op.create_table(
         "products",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -180,7 +197,7 @@ def upgrade() -> None:
         sa.Column("name_en", sa.String(255), nullable=False),
         sa.Column("price_cents", sa.Integer(), nullable=False),
         sa.Column("currency", sa.String(3), nullable=False),
-        sa.Column("stripe_price_id", sa.String(128)),
+        sa.Column("stripe_price_id", sa.String(128), nullable=True),
         sa.Column("metadata", sa.JSON(), nullable=False),
         sa.Column("active", sa.Boolean(), nullable=False),
     )
@@ -224,6 +241,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
 
+    # indexes
     op.create_index("ix_users_email", "users", ["email"])
     op.create_index("ix_refresh_tokens_user_id", "refresh_tokens", ["user_id"])
     op.create_index("ix_refresh_tokens_token_hash", "refresh_tokens", ["token_hash"])
@@ -241,6 +259,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # drop indexes
     op.drop_index("ix_entitlements_user_kind_valid", table_name="entitlements")
     op.drop_index("ix_entitlements_user_id", table_name="entitlements")
     op.drop_index("ix_payment_events_processed", table_name="payments_events")
@@ -256,6 +275,7 @@ def downgrade() -> None:
     op.drop_index("ix_refresh_tokens_user_id", table_name="refresh_tokens")
     op.drop_index("ix_users_email", table_name="users")
 
+    # drop tables (reverse dependency order)
     op.drop_table("entitlements")
     op.drop_table("payments_events")
     op.drop_table("orders")
@@ -272,3 +292,18 @@ def downgrade() -> None:
     op.drop_table("audit_log")
     op.drop_table("refresh_tokens")
     op.drop_table("users")
+
+    # drop enums (optional but clean)
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'userstatus') THEN
+                DROP TYPE userstatus;
+            END IF;
+            IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'role') THEN
+                DROP TYPE role;
+            END IF;
+        END$$;
+        """
+    )
